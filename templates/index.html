@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InboxManager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-body: #1E1E1E;
+            --bg-sidebar: #1E1E1E;
+            --bg-list: #252526;
+            --bg-detail: #1E1E1E;
+            --bg-search: #333333;
+            --bg-hover: #37373D;
+            --bg-active: #37373D; /* List selection */
+            --accent: #0078D4; /* VS Code Blue style */
+            --text-main: #CCCCCC;
+            --text-muted: #858585;
+            --border: #333333;
+        }
+
+        body { margin: 0; background: var(--bg-body); color: var(--text-main); font-family: 'Inter', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+        /* HEADER */
+        header { height: 50px; background: var(--bg-sidebar); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 15px; }
+        .logo { font-weight: 600; font-size: 18px; color: #fff; margin-right: 20px; display: flex; align-items: center; gap: 8px; }
+        
+        .search-bar { flex: 1; max-width: 600px; background: var(--bg-search); border-radius: 4px; display: flex; align-items: center; padding: 5px 10px; position: relative; }
+        .search-bar input { background: transparent; border: none; color: white; flex: 1; outline: none; font-size: 14px; }
+        .icon-btn { cursor: pointer; padding: 6px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+        .icon-btn:hover { background: rgba(255,255,255,0.1); }
+        .icon-btn svg { width: 18px; height: 18px; fill: var(--text-muted); }
+        .icon-btn:hover svg { fill: #fff; }
+
+        /* LAYOUT */
+        #container { flex: 1; display: flex; overflow: hidden; }
+        
+        /* SIDEBAR */
+        #sidebar { width: 220px; background: var(--bg-sidebar); display: flex; flex-direction: column; padding-top: 10px; border-right: 1px solid var(--border); }
+        .nav-item { padding: 8px 15px; cursor: pointer; display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-main); margin-bottom: 2px; }
+        .nav-item:hover { background: var(--bg-hover); }
+        .nav-item.active { background: rgba(255,255,255,0.08); color: white; font-weight: 500; border-left: 3px solid var(--accent); }
+        .nav-item svg { width: 18px; height: 18px; fill: currentColor; opacity: 0.8; }
+        .divider { height: 1px; background: var(--border); margin: 10px 0; }
+        .section-title { font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 5px 15px; font-weight: 600; }
+
+        /* EMAIL LIST */
+        #list-pane { width: 400px; background: var(--bg-list); display: flex; flex-direction: column; border-right: 1px solid var(--border); min-width: 250px; }
+        
+        /* TABS */
+        #category-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg-list); }
+        .tab { flex: 1; text-align: center; padding: 10px 0; font-size: 12px; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; }
+        .tab:hover { color: var(--text-main); }
+        .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+
+        #email-list { flex: 1; overflow-y: auto; }
+        .email-row { padding: 10px 15px; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .email-row:hover { background: var(--bg-hover); }
+        .email-row.selected { background: #37373D; border-left: 2px solid var(--accent); }
+        .e-header { display: flex; justify-content: space-between; font-size: 13px; color: #fff; margin-bottom: 4px; }
+        .e-subj { font-size: 13px; color: #d4d4d4; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .e-snip { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .e-date { font-size: 11px; color: var(--text-muted); }
+
+        /* SPLITTER */
+        #splitter { width: 4px; background: var(--bg-body); cursor: col-resize; transition: background 0.2s; }
+        #splitter:hover { background: var(--accent); }
+
+        /* DETAIL VIEW */
+        #detail-pane { flex: 1; background: var(--bg-detail); display: flex; flex-direction: column; overflow: hidden; min-width: 300px; }
+        #empty-state { margin: auto; color: var(--text-muted); font-size: 14px; }
+        
+        .d-header { padding: 20px; border-bottom: 1px solid var(--border); background: var(--bg-list); }
+        .d-title { font-size: 18px; color: #fff; margin-bottom: 15px; font-weight: 500; }
+        .d-meta-row { display: flex; justify-content: space-between; align-items: flex-start; }
+        .d-sender-info { display: flex; flex-direction: column; gap: 4px; }
+        .d-name { font-size: 14px; color: #fff; font-weight: 600; }
+        .d-email { font-size: 12px; color: var(--text-muted); }
+        .d-toolbar { display: flex; gap: 10px; }
+
+        .d-tech-details { margin-top: 15px; padding: 10px; background: #1e1e1e; border: 1px solid var(--border); border-radius: 4px; display: none; }
+        .d-tech-details.open { display: block; }
+        .tech-row { font-size: 11px; color: var(--text-muted); font-family: monospace; display: flex; gap: 10px; margin-bottom: 2px; }
+        .tech-key { color: #8ab4f8; min-width: 100px; }
+
+        #d-iframe { flex: 1; border: none; background: white; }
+
+        /* MEGA FILTER */
+        #mega-filter { position: absolute; top: 52px; left: 280px; width: 600px; background: #252526; border: 1px solid var(--border); border-radius: 6px; padding: 20px; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none; }
+        #mega-filter.open { display: block; }
+        .mf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+        .mf-group label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 5px; }
+        .mf-input { width: 100%; background: #333; border: 1px solid #444; color: white; padding: 6px; border-radius: 3px; box-sizing: border-box; font-size: 12px; }
+        
+        /* EXPORT MODAL */
+        #modal-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.6); z-index: 200; display:none; }
+        #export-modal { position: fixed; top:50%; left:50%; transform: translate(-50%,-50%); background: #252526; border: 1px solid var(--border); width: 400px; padding: 25px; border-radius: 6px; z-index: 201; display:none; }
+        .ex-opt { padding: 10px; border: 1px solid var(--border); margin-bottom: 8px; cursor: pointer; border-radius: 4px; }
+        .ex-opt:hover { background: var(--bg-hover); }
+        .ex-title { font-size: 13px; font-weight: 600; color: #fff; }
+        .ex-desc { font-size: 11px; color: var(--text-muted); }
+
+        /* BUTTONS */
+        .btn { padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; border: none; font-weight: 500; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-sec { background: #3c3c3c; color: #ccc; }
+        .btn-sec:hover { background: #4c4c4c; }
+        
+        .tag-pill { background: #0078D4; color: white; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="#0078D4"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/></svg>
+        InboxManager
+    </div>
+    
+    <div class="search-bar">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="#858585" style="margin-right:8px"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" id="q-input" placeholder="Search..." onkeyup="if(event.key==='Enter') doSearch()">
+        <div class="icon-btn" onclick="toggleFilter()" title="Advanced Filters">
+            <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+        </div>
+    </div>
+    
+    <div style="margin-left:auto; display:flex; gap:10px">
+        <button class="btn btn-sec" onclick="openExport()">Export</button>
+        <button class="btn btn-sec" onclick="promptImport()">Import</button>
+    </div>
+</header>
+
+<div id="mega-filter">
+    <div class="mf-grid">
+        <div class="mf-group"><label>Includes Words</label><input class="mf-input" id="f-inc"></div>
+        <div class="mf-group"><label>Excludes Words</label><input class="mf-input" id="f-exc"></div>
+        <div class="mf-group"><label>From</label><input class="mf-input" id="f-sender"></div>
+        <div class="mf-group"><label>To/CC/BCC</label><input class="mf-input" id="f-recip"></div>
+        <div class="mf-group"><label>Subject</label><input class="mf-input" id="f-sub"></div>
+        <div class="mf-group"><label>Domain (@gmail.com)</label><input class="mf-input" id="f-domain"></div>
+        <div class="mf-group"><label>Start Date</label><input type="date" class="mf-input" id="f-start"></div>
+        <div class="mf-group"><label>End Date</label><input type="date" class="mf-input" id="f-end"></div>
+        <div class="mf-group"><label>Min Size (MB)</label><input type="number" class="mf-input" id="f-min-size"></div>
+        <div class="mf-group"><label>Sort By</label><select class="mf-input" id="f-sort"><option value="date_desc">Date (Newest)</option><option value="date_asc">Date (Oldest)</option><option value="size_desc">Size (Largest)</option><option value="att_desc">Most Attachments</option></select></div>
+        <div class="mf-group"><label>Attachment</label><select class="mf-input" id="f-att"><option value="">Any</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+        <div class="mf-group"><label>Read Status</label><select class="mf-input" id="f-read"><option value="">Any</option><option value="yes">Read</option><option value="unread">Unread</option></select></div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button class="btn btn-sec" onclick="toggleFilter()">Cancel</button>
+        <button class="btn btn-primary" onclick="doSearch()">Apply Filters</button>
+    </div>
+</div>
+
+<div id="container">
+    <div id="sidebar">
+        <div class="nav-item active" onclick="setFolder('inbox', this)">
+            <svg viewBox="0 0 24 24"><path d="M19 3H4.99c-1.11 0-1.98.89-1.98 2L3 19c0 1.1.89 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z"/></svg>
+            Inbox
+        </div>
+        <div class="nav-item" onclick="setFolder('starred', this)">
+            <svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+            Starred
+        </div>
+        <div class="nav-item" onclick="setFolder('sent', this)">
+            <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            Sent
+        </div>
+        <div class="nav-item" onclick="setFolder('drafts', this)">
+            <svg viewBox="0 0 24 24"><path d="M6 2c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6H6zm7 7V3.5L18.5 9H13z"/></svg>
+            Drafts
+        </div>
+        <div class="nav-item" onclick="setFolder('all', this)">
+            <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+            All Mail
+        </div>
+        
+        <div class="divider"></div>
+        <div class="section-title">Categories</div>
+        
+        <div class="nav-item" onclick="setFolder('purchases', this)">
+            <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/></svg>
+            Purchases
+        </div>
+        <div class="nav-item" onclick="setFolder('forums', this)">
+            <svg viewBox="0 0 24 24"><path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z"/></svg>
+            Forums
+        </div>
+    </div>
+
+    <div id="list-pane">
+        <div id="category-tabs">
+            <div class="tab active" onclick="setCat('primary', this)">Primary</div>
+            <div class="tab" onclick="setCat('promotions', this)">Promos</div>
+            <div class="tab" onclick="setCat('social', this)">Social</div>
+            <div class="tab" onclick="setCat('updates', this)">Updates</div>
+            <div class="tab" onclick="setCat('forums', this)">Forums</div>
+            <div class="tab" onclick="setCat('purchases', this)">Shop</div>
+        </div>
+        <div id="email-list">
+            </div>
+    </div>
+
+    <div id="splitter"></div>
+
+    <div id="detail-pane">
+        <div id="empty-state">Select an email to view</div>
+        <div id="detail-wrapper" style="display:none; height:100%; flex-direction:column;">
+            <div class="d-header">
+                <div class="d-title" id="d-subject">Subject</div>
+                <div class="d-meta-row">
+                    <div class="d-sender-info">
+                        <span class="d-name" id="d-name">Sender Name</span>
+                        <span class="d-email" id="d-email">sender@email.com</span>
+                    </div>
+                    <div class="d-toolbar">
+                        <span style="font-size:12px; color:#858585; margin-right:10px;" id="d-date">Date</span>
+                        <button class="btn btn-sec" onclick="toggleTechDetails()">Headers</button>
+                        <button class="btn btn-primary" onclick="addTag()">+ Tag</button>
+                    </div>
+                </div>
+                <div class="d-tech-details" id="tech-details">
+                    </div>
+            </div>
+            <iframe id="d-iframe" title="Email Content"></iframe>
+        </div>
+    </div>
+</div>
+
+<div id="modal-overlay" onclick="closeExport()"></div>
+<div id="export-modal">
+    <h3 style="color:white; margin-top:0;">Export Options</h3>
+    <div class="ex-opt" onclick="runExport('csv')">
+        <div class="ex-title">CSV Report</div>
+        <div class="ex-desc">Metadata spreadsheet for analysis.</div>
+    </div>
+    <div class="ex-opt" onclick="runExport('json')">
+        <div class="ex-title">JSON Dump</div>
+        <div class="ex-desc">Complete raw data dump.</div>
+    </div>
+    <div class="ex-opt" onclick="runExport('eml')">
+        <div class="ex-title">EML Zip</div>
+        <div class="ex-desc">Individual .eml files for other mail clients.</div>
+    </div>
+    <div class="ex-opt" onclick="runExport('organized')">
+        <div class="ex-title">Organized Website (ZIP)</div>
+        <div class="ex-desc">Browsable HTML grouped by category.</div>
+        <select id="ex-group" onclick="event.stopPropagation()" style="margin-top:5px; background:#333; color:white; border:none; padding:4px;">
+            <option value="year">Group by Year</option>
+            <option value="domain">Group by Domain</option>
+        </select>
+    </div>
+    <button class="btn btn-sec" style="width:100%" onclick="closeExport()">Close</button>
+</div>
+
+<script>
+    // --- STATE ---
+    let state = { folder: 'inbox', category: 'primary' };
+    let currentEmail = null;
+
+    // --- RESIZER ---
+    const splitter = document.getElementById('splitter');
+    const listPane = document.getElementById('list-pane');
+    let isResizing = false;
+
+    splitter.addEventListener('mousedown', (e) => { isResizing = true; document.body.style.cursor = 'col-resize'; });
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        let newWidth = e.clientX - 220; // 220 is sidebar width
+        if (newWidth > 200 && newWidth < 800) listPane.style.width = newWidth + 'px';
+    });
+    document.addEventListener('mouseup', () => { isResizing = false; document.body.style.cursor = 'default'; });
+
+    // --- FUNCTIONS ---
+    function toggleFilter() { document.getElementById('mega-filter').classList.toggle('open'); }
+    function toggleTechDetails() { document.getElementById('tech-details').classList.toggle('open'); }
+    function openExport() { document.getElementById('export-modal').style.display='block'; document.getElementById('modal-overlay').style.display='block'; }
+    function closeExport() { document.getElementById('export-modal').style.display='none'; document.getElementById('modal-overlay').style.display='none'; }
+
+    function setFolder(f, el) {
+        state.folder = f; state.category = 'primary';
+        document.querySelectorAll('.nav-item').forEach(e => e.classList.remove('active'));
+        el.classList.add('active');
+        document.getElementById('category-tabs').style.display = (f === 'inbox') ? 'flex' : 'none';
+        doSearch();
+    }
+    function setCat(c, el) {
+        state.category = c;
+        document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
+        el.classList.add('active');
+        doSearch();
+    }
+
+    function getFilters() {
+        return {
+            folder: state.folder,
+            category: state.category,
+            q: document.getElementById('q-input').value,
+            includes: document.getElementById('f-inc').value,
+            excludes: document.getElementById('f-exc').value,
+            sender: document.getElementById('f-sender').value,
+            recipient: document.getElementById('f-recip').value,
+            subject: document.getElementById('f-sub').value,
+            domain: document.getElementById('f-domain').value,
+            date_start: document.getElementById('f-start').value,
+            date_end: document.getElementById('f-end').value,
+            size_min: document.getElementById('f-min-size').value,
+            has_attachment: document.getElementById('f-att').value,
+            is_read: document.getElementById('f-read').value,
+            sort: document.getElementById('f-sort').value
+        };
+    }
+
+    async function doSearch() {
+        document.getElementById('mega-filter').classList.remove('open');
+        const res = await fetch('/api/search', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(getFilters()) });
+        const data = await res.json();
+        
+        const list = document.getElementById('email-list');
+        list.innerHTML = '';
+        
+        if(data.length === 0) {
+            list.innerHTML = '<div style="padding:20px; color:#888; text-align:center;">No items.</div>';
+            return;
+        }
+
+        data.forEach(e => {
+            const div = document.createElement('div');
+            div.className = 'email-row';
+            div.onclick = () => loadEmail(e.id, div);
+            
+            let badges = '';
+            if(e.tags) badges = `<span class="tag-pill">${e.tags}</span>`;
+            
+            div.innerHTML = `
+                <div class="e-header">
+                    <span style="font-weight:600; overflow:hidden; text-overflow:ellipsis;">${e.sender_name}</span>
+                    <span class="e-date">${e.date}</span>
+                </div>
+                <div class="e-subj">${e.subject}</div>
+                <div class="e-snip">${badges} ${e.snippet}</div>
+            `;
+            list.appendChild(div);
+        });
+    }
+
+    async function loadEmail(id, el) {
+        currentEmail = id;
+        document.querySelectorAll('.email-row').forEach(e => e.classList.remove('selected'));
+        el.classList.add('selected');
+        document.getElementById('empty-state').style.display = 'none';
+        document.getElementById('detail-wrapper').style.display = 'flex';
+        
+        const res = await fetch(`/api/email/${id}`);
+        const d = await res.json();
+        
+        document.getElementById('d-subject').innerText = d.subject;
+        document.getElementById('d-name').innerText = d.sender.split('<')[0];
+        document.getElementById('d-email').innerText = d.sender_addr;
+        document.getElementById('d-date').innerText = d.date;
+
+        // Tech Details
+        const th = document.getElementById('tech-details');
+        th.innerHTML = '';
+        for (const [k, v] of Object.entries(d.headers)) {
+            th.innerHTML += `<div class="tech-row"><span class="tech-key">${k}</span><span>${v}</span></div>`;
+        }
+        th.innerHTML += `<div class="tech-row"><span class="tech-key">Size</span><span>${d.size}</span></div>`;
+
+        const doc = document.getElementById('d-iframe').contentWindow.document;
+        doc.open();
+        // Inject styles so email looks decent in dark mode context
+        doc.write(`
+            <style>
+                body { font-family: sans-serif; padding: 20px; color: #333; background: #fff; }
+                a { color: #0078D4; }
+                ::-webkit-scrollbar { width: 8px; }
+                ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+            </style>
+            ${d.content}
+        `);
+        doc.close();
+    }
+
+    async function promptImport() {
+        const p = prompt("Path to .mbox:");
+        if(p) { alert("Check terminal..."); await fetch('/import', { method:'POST', body:new URLSearchParams({path:p}) }); alert("Done"); doSearch(); }
+    }
+
+    async function addTag() {
+        const t = prompt("Tag:");
+        if(t && currentEmail) { await fetch('/api/tag', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:currentEmail, tag:t}) }); loadEmail(currentEmail, document.querySelector('.email-row.selected')); }
+    }
+
+    async function runExport(type) {
+        let payload = { filters: getFilters() };
+        if(type === 'organized') payload.group_by = document.getElementById('ex-group').value;
+        
+        const res = await fetch(`/api/export/${type}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a'); 
+        a.href = url; 
+        if(type==='csv') a.download='report.csv';
+        if(type==='json') a.download='dump.json';
+        if(type==='eml') a.download='eml_files.zip';
+        if(type==='organized') a.download='website.zip';
+        a.click();
+        closeExport();
+    }
+    
+    // Init
+    doSearch();
+</script>
+</body>
+</html>
