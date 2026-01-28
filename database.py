@@ -19,23 +19,17 @@ class EmailBackend:
             CREATE TABLE IF NOT EXISTS emails (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 uid TEXT UNIQUE,
-                
                 sender TEXT, sender_name TEXT, sender_addr TEXT, sender_domain TEXT,
                 recipient TEXT, cc TEXT, bcc TEXT, reply_to TEXT,
-                
                 subject TEXT,
                 date_str TEXT, timestamp REAL, day_of_week TEXT,
-                
                 size_bytes INTEGER, link_count INTEGER,
-                
                 has_attachment INTEGER, attachment_count INTEGER, 
                 attachment_types TEXT, attachment_names TEXT,
-                
                 folder TEXT, category TEXT,
                 is_starred INTEGER, is_read INTEGER, is_newsletter INTEGER,
                 gmail_labels TEXT,
-                
-                headers_json TEXT, -- Store raw interesting headers
+                headers_json TEXT,
                 body TEXT, html_body TEXT, tags TEXT DEFAULT ''
             )
         ''')
@@ -59,18 +53,16 @@ class EmailBackend:
         return match.group(1).lower() if match else ""
 
     def _parse_gmail_labels(self, labels_str):
-        # Default State
         folder = 'all'
         category = 'primary'
         is_starred = 0
         is_read = 1 
         
-        if not labels_str: 
-            return folder, category, is_starred, is_read
+        if not labels_str: return folder, category, is_starred, is_read
             
         labels = [l.strip() for l in labels_str.split(',')]
         
-        # 1. Folders
+        # Folder Mapping
         if 'Inbox' in labels: folder = 'inbox'
         elif 'Sent' in labels: folder = 'sent'
         elif 'Trash' in labels: folder = 'bin'
@@ -78,18 +70,16 @@ class EmailBackend:
         elif 'Drafts' in labels: folder = 'drafts'
         elif 'Important' in labels: folder = 'important'
         elif 'Starred' in labels: folder = 'starred'
+        elif 'Snoozed' in labels: folder = 'snoozed'
+        elif 'Scheduled' in labels: folder = 'scheduled'
         
-        # 2. Categories
-        # Gmail categories are mutually exclusive in UI, but labels might overlap.
-        # Priority: Promo > Social > Updates > Forums > Purchases > Primary
+        # Category Mapping
         if 'Category Promotions' in labels: category = 'promotions'
         elif 'Category Social' in labels: category = 'social'
         elif 'Category Updates' in labels: category = 'updates'
         elif 'Category Forums' in labels: category = 'forums'
         elif 'Category Purchases' in labels: category = 'purchases'
-        else: category = 'primary' 
         
-        # 3. Flags
         if 'Starred' in labels: is_starred = 1
         if 'Unread' in labels: is_read = 0
         
@@ -100,87 +90,45 @@ class EmailBackend:
         query = ["SELECT * FROM emails WHERE 1=1"]
         params = []
 
-        # --- 1. VIEW CONTEXT ---
-        if f.get('folder') and f['folder'] != 'all':
-            if f['folder'] == 'starred': query.append("AND is_starred = 1")
-            else: 
-                query.append("AND folder = ?")
-                params.append(f['folder'])
-                
-        if f.get('category') and f.get('folder') == 'inbox':
-            query.append("AND category = ?")
-            params.append(f['category'])
+        # --- FOLDER / CATEGORY LOGIC ---
+        # If user clicks a "Category" in the sidebar, we treat it as a filter on Inbox
+        # If user clicks a "Folder", we filter by folder
+        
+        view_mode = f.get('view_mode', 'folder') # 'folder' or 'category'
+        target = f.get('target', 'inbox')
 
-        # --- 2. TEXT & FTS ---
+        if view_mode == 'folder':
+            if target == 'starred': query.append("AND is_starred = 1")
+            elif target != 'all': 
+                query.append("AND folder = ?")
+                params.append(target)
+        elif view_mode == 'category':
+            # Categories usually imply Inbox + Category
+            query.append("AND folder = 'inbox' AND category = ?")
+            params.append(target)
+
+        # --- TEXT SEARCH ---
         if f.get('q'):
             query.append("AND id IN (SELECT rowid FROM emails_fts WHERE emails_fts MATCH ?)")
             params.append(f.get('q'))
-        if f.get('includes'):
-            query.append("AND id IN (SELECT rowid FROM emails_fts WHERE emails_fts MATCH ?)")
-            params.append(f'"{f["includes"]}"')
-        if f.get('excludes'):
-            query.append("AND id IN (SELECT rowid FROM emails_fts WHERE emails_fts MATCH ?)")
-            params.append(f'NOT "{f["excludes"]}"')
-
-        # --- 3. PEOPLE ---
+            
+        # --- METADATA ---
         if f.get('sender'):
             query.append("AND sender LIKE ?")
             params.append(f"%{f['sender']}%")
-        if f.get('recipient'):
-            query.append("AND (recipient LIKE ? OR cc LIKE ? OR bcc LIKE ?)")
-            p = f"%{f['recipient']}%"
-            params.extend([p, p, p])
-        if f.get('domain'):
-            query.append("AND sender_domain LIKE ?")
-            params.append(f"%{f['domain']}%")
-
-        # --- 4. ATTRIBUTES ---
         if f.get('subject'):
             query.append("AND subject LIKE ?")
             params.append(f"%{f['subject']}%")
+            
+        if f.get('has_attachment'):
+            if f['has_attachment'] == 'yes': query.append("AND has_attachment = 1")
+            elif f['has_attachment'] == 'no': query.append("AND has_attachment = 0")
+
+        # --- SORTING ---
+        order = "timestamp DESC"
+        if f.get('sort') == 'date_asc': order = "timestamp ASC"
+        elif f.get('sort') == 'size_desc': order = "size_bytes DESC"
         
-        if f.get('has_attachment') == 'yes': query.append("AND has_attachment = 1")
-        elif f.get('has_attachment') == 'no': query.append("AND has_attachment = 0")
-            
-        if f.get('is_read') == 'yes': query.append("AND is_read = 1")
-        elif f.get('is_read') == 'unread': query.append("AND is_read = 0")
-
-        if f.get('is_newsletter') == 'yes': query.append("AND is_newsletter = 1")
-
-        # --- 5. RANGES ---
-        if f.get('date_start'):
-            ts = datetime.datetime.strptime(f['date_start'], "%Y-%m-%d").timestamp()
-            query.append("AND timestamp >= ?")
-            params.append(ts)
-        if f.get('date_end'):
-            ts = datetime.datetime.strptime(f['date_end'], "%Y-%m-%d").timestamp()
-            query.append("AND timestamp <= ?")
-            params.append(ts)
-            
-        if f.get('size_min'): # in MB
-            query.append("AND size_bytes >= ?")
-            params.append(float(f['size_min']) * 1024 * 1024)
-        if f.get('size_max'):
-            query.append("AND size_bytes <= ?")
-            params.append(float(f['size_max']) * 1024 * 1024)
-
-        # --- 6. ADVANCED ---
-        if f.get('att_type'):
-            query.append("AND attachment_types LIKE ?")
-            params.append(f"%{f['att_type']}%")
-        if f.get('att_name'):
-            query.append("AND attachment_names LIKE ?")
-            params.append(f"%{f['att_name']}%")
-
-        # Sorting
-        sort_map = {
-            "date_desc": "timestamp DESC",
-            "date_asc": "timestamp ASC",
-            "size_desc": "size_bytes DESC",
-            "sender_asc": "sender ASC",
-            "att_desc": "attachment_count DESC"
-        }
-        order = sort_map.get(f.get('sort'), "timestamp DESC")
         query.append(f"ORDER BY {order} LIMIT 1000")
 
         cursor.execute(" ".join(query), tuple(params))
@@ -233,11 +181,7 @@ class EmailBackend:
                     subject = clean(message["subject"]) or "(No Subject)"
                     sender = clean(message["from"])
                     recipient = clean(message["to"])
-                    cc = clean(message.get("cc", ""))
-                    bcc = clean(message.get("bcc", ""))
-                    reply_to = clean(message.get("reply-to", ""))
                     
-                    # Name/Addr Split
                     sender_name, sender_addr = sender, sender
                     if "<" in sender:
                         parts = sender.split("<")
@@ -252,9 +196,8 @@ class EmailBackend:
                     gmail_labels_raw = message.get('X-Gmail-Labels', '')
                     folder, category, is_starred, is_read = self._parse_gmail_labels(gmail_labels_raw)
                     
-                    # Body & Attachments
-                    body_text = ""
-                    body_html = ""
+                    # Body
+                    body_text, body_html = "", ""
                     attachments = []
                     
                     if message.is_multipart():
@@ -281,39 +224,28 @@ class EmailBackend:
                                 else: body_text = decoded
                         except: pass
                     
-                    link_count = body_html.count('<a href') + body_text.count('http://')
                     size_bytes = len(message.as_bytes())
                     has_att = 1 if attachments else 0
-                    att_count = len(attachments)
                     att_types = ",".join(list(set([os.path.splitext(x)[1].lower() for x in attachments])))
                     att_names = "; ".join(attachments)
-
-                    # Capture raw headers for "Detail View"
-                    # Only grabbing specific useful ones to save space, or all? 
-                    # Let's grab specific interesting ones
+                    
+                    # Minimal headers for details
                     raw_headers = {
-                        "Message-ID": uid,
-                        "Delivered-To": message.get("Delivered-To", ""),
-                        "Return-Path": message.get("Return-Path", ""),
-                        "MIME-Version": message.get("MIME-Version", ""),
-                        "Content-Type": message.get("Content-Type", ""),
-                        "X-Mailer": message.get("X-Mailer", ""),
-                        "X-Gmail-Labels": gmail_labels_raw
+                        "X-Gmail-Labels": gmail_labels_raw,
+                        "Message-ID": uid
                     }
                     import json
                     headers_json = json.dumps(raw_headers)
 
                     self.conn.execute('''
                         INSERT OR IGNORE INTO emails 
-                        (uid, sender, sender_name, sender_addr, sender_domain, recipient, cc, bcc, reply_to,
-                         subject, date_str, timestamp, day_of_week,
-                         size_bytes, link_count, has_attachment, attachment_count, attachment_types, attachment_names,
+                        (uid, sender, sender_name, sender_addr, sender_domain, recipient, subject, date_str, timestamp, day_of_week,
+                         size_bytes, has_attachment, attachment_count, attachment_types, attachment_names,
                          folder, category, is_starred, is_read, is_newsletter, gmail_labels, headers_json,
                          body, html_body)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    ''', (uid, sender, sender_name, sender_addr, sender_domain, recipient, cc, bcc, reply_to,
-                          subject, date_str, timestamp, day_name,
-                          size_bytes, link_count, has_att, att_count, att_types, att_names,
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ''', (uid, sender, sender_name, sender_addr, sender_domain, recipient, subject, date_str, timestamp, day_name,
+                          size_bytes, has_att, len(attachments), att_types, att_names,
                           folder, category, is_starred, is_read, is_newsletter, gmail_labels_raw, headers_json,
                           body_text, body_html))
 
